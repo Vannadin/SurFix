@@ -1,6 +1,6 @@
 # SurFix
 
-##**NOTICE**: This mod is developed using Claude Code (Fable model).
+## NOTICE: This mod is developed using Claude Code (Fable model)
 
 **Sur**face object precision **fix** for KSP. Repairs the 0.5–1 m misalignment
 between space-center building modules on large-radius planets (RSS and
