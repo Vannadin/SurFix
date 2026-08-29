@@ -6,18 +6,27 @@ using UnityEngine;
 namespace PQSCityPrecisionFix
 {
     /// <summary>
-    /// v0: drives only the home body's "KSC" PQSCity, only in the Space Center
-    /// scene, and only on bodies large enough that float ULP at radius >= 0.25 m
+    /// Drives the home body's "KSC" PQSCity in the Space Center and Flight
+    /// scenes, only on bodies large enough that float ULP at radius >= 0.25 m
     /// (stock-scale Kerbin is untouched). See design-detach-drive.md in the
     /// ksp-kk-precision project folder for the mechanism and measurements.
+    ///
+    /// The drive runs in FixedUpdate (very late execution order, so physics
+    /// steps see the corrected colliders after Krakensbane/FloatingOrigin have
+    /// moved the frame), again in LateUpdate for rendering, and once more on
+    /// the floating-origin-shift event to close the staleness window. The
+    /// detach happens at frame 2, while a just-loaded vessel is still packed,
+    /// so the one-time <= 0.5 m root correction lands before its colliders are
+    /// live.
     /// </summary>
-    [KSPAddon(KSPAddon.Startup.SpaceCentre, false)]
-    public class SpaceCenterDriver : MonoBehaviour
+    [KSPAddon(KSPAddon.Startup.FlightAndKSC, false)]
+    [DefaultExecutionOrder(29000)]
+    public class Driver : MonoBehaviour
     {
         // drive only when float ULP at planet radius reaches this (R >= 2^21 m)
         private const double minUlpToDrive = 0.25;
-        // let PSystemSetup / PQSCity.Orientate settle first
-        private const int attachFrame = 30;
+        // detach while a freshly loaded vessel is still packed (colliders off)
+        private const int attachFrame = 2;
 
         private PQSCity city;
         private Transform planetTransform;
@@ -26,7 +35,16 @@ namespace PQSCityPrecisionFix
         private Vector3 savedLocalPos;
         private Quaternion savedLocalRot;
         private bool driving = false;
+        private bool subscribed = false;
         private int frames = 0;
+
+        public void FixedUpdate()
+        {
+            if (driving)
+            {
+                Drive();
+            }
+        }
 
         public void LateUpdate()
         {
@@ -43,6 +61,14 @@ namespace PQSCityPrecisionFix
                 }
             }
             Drive();
+        }
+
+        private void OnOriginShift(Vector3d offset, Vector3d offsetNonKrakensbane)
+        {
+            if (driving)
+            {
+                Drive();
+            }
         }
 
         private void TryAttach()
@@ -101,6 +127,8 @@ namespace PQSCityPrecisionFix
             // active scene and would be destroyed on scene unload — pin it.
             city.transform.SetParent(null, true);
             GameObject.DontDestroyOnLoad(city.gameObject);
+            GameEvents.onFloatingOriginShift.Add(OnOriginShift);
+            subscribed = true;
             driving = true;
             Debug.Log("[PQSCityPrecisionFix] driving " + city.name + " on " + home.bodyName
                 + " (ULP at radius = " + ulp + " m), relPos = " + relPos);
@@ -125,6 +153,11 @@ namespace PQSCityPrecisionFix
 
         public void OnDestroy()
         {
+            if (subscribed)
+            {
+                GameEvents.onFloatingOriginShift.Remove(OnOriginShift);
+                subscribed = false;
+            }
             // scene teardown: hand the stock hierarchy back exactly as captured,
             // so the next PQS mod re-scan sees the vanilla structure
             if (driving && city != null && planetTransform != null)
