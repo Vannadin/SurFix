@@ -70,17 +70,23 @@ namespace SurFix
         // selected in an OPEN KK group editor must stay attached: KK reads
         // localPosition back as a planet-relative position and saves it.
         private static bool kkChecked;
+        private static bool kkPresent;
         private static bool kkArmed;
         private static FieldInfo kkEditorInstance;   // GroupEditor._instance (the lazy property would construct one)
         private static MethodInfo kkEditorIsOpen;    // KKWindow.IsOpen()
         private static FieldInfo kkSelectedGroup;    // GroupEditor.selectedGroup
         private static FieldInfo kkPqsCity;          // GroupCenter.pqsCity
+        private static MethodInfo kkRegisterSpawned;   // API.RegisterOnBuildingSpawned
+        private static MethodInfo kkUnregisterSpawned; // API.UnregisterOnBuildingSpawned
 
         private List<Entry> entries;
         private readonly HashSet<int> considered = new HashSet<int>();
         private int framesBeforeScan;
         private int rescanCountdown;
         private bool subscribed;
+        private int settleRescansLeft = 3;
+        private bool rescanRequested;
+        private Action<GameObject> kkSpawnHandler;
 
         private void FixedUpdate()
         {
@@ -101,11 +107,29 @@ namespace SurFix
                     return;
                 }
             }
+            if (rescanRequested)
+            {
+                // KK just spawned buildings (editor, career, API, lazy body
+                // load) — one sweep per burst, next frame after the event
+                rescanRequested = false;
+                Rescan();
+            }
             if (--rescanCountdown <= 0)
             {
                 rescanCountdown = rescanIntervalFrames;
-                Rescan();
                 InvalidatePoses();
+                // only Kerbal Konstructs creates cities mid-scene; a few
+                // settling sweeps cover everything else, and with the spawn
+                // event hooked the periodic sweep is only a fallback
+                if (settleRescansLeft > 0)
+                {
+                    settleRescansLeft--;
+                    Rescan();
+                }
+                else if (kkPresent && kkSpawnHandler == null)
+                {
+                    Rescan();
+                }
             }
             Manage();
         }
@@ -146,9 +170,38 @@ namespace SurFix
             GameEvents.onFloatingOriginShift.Add(OnOriginShift);
             GameEvents.OnPQSCityOrientated.Add(OnCityOrientated);
             subscribed = true;
+            HookKKSpawnEvent();
             Rescan();
             rescanCountdown = rescanIntervalFrames;
             Debug.Log("[SurFix] managing " + entries.Count + " cities");
+        }
+
+        /// <summary>
+        /// With KK's building-spawn event hooked, rescans run only when a city
+        /// can actually have appeared; the periodic sweep stays as a fallback
+        /// for KK builds where the API is unresolvable.
+        /// </summary>
+        private void HookKKSpawnEvent()
+        {
+            if (!kkPresent || kkRegisterSpawned == null || kkUnregisterSpawned == null)
+            {
+                return;
+            }
+            try
+            {
+                kkSpawnHandler = OnKKBuildingSpawned;
+                kkRegisterSpawned.Invoke(null, new object[] { kkSpawnHandler });
+            }
+            catch (Exception e)
+            {
+                kkSpawnHandler = null;
+                Debug.LogWarning("[SurFix] KK spawn-event hook failed, keeping periodic rescan: " + e.Message);
+            }
+        }
+
+        private void OnKKBuildingSpawned(GameObject building)
+        {
+            rescanRequested = true;
         }
 
         private void Rescan()
@@ -205,8 +258,17 @@ namespace SurFix
                 {
                     continue;
                 }
+                kkPresent = true;
                 Type groupCenter = loaded.assembly.GetType("KerbalKonstructs.Core.GroupCenter");
                 Type groupEditor = loaded.assembly.GetType("KerbalKonstructs.UI.GroupEditor");
+                Type api = loaded.assembly.GetType("KerbalKonstructs.API");
+                if (api != null)
+                {
+                    kkRegisterSpawned = api.GetMethod("RegisterOnBuildingSpawned",
+                        BindingFlags.Static | BindingFlags.Public);
+                    kkUnregisterSpawned = api.GetMethod("UnregisterOnBuildingSpawned",
+                        BindingFlags.Static | BindingFlags.Public);
+                }
                 if (groupCenter != null && groupEditor != null)
                 {
                     kkPqsCity = groupCenter.GetField("pqsCity",
@@ -551,6 +613,18 @@ namespace SurFix
                 GameEvents.onFloatingOriginShift.Remove(OnOriginShift);
                 GameEvents.OnPQSCityOrientated.Remove(OnCityOrientated);
                 subscribed = false;
+            }
+            if (kkSpawnHandler != null)
+            {
+                try
+                {
+                    kkUnregisterSpawned.Invoke(null, new object[] { kkSpawnHandler });
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning("[SurFix] KK spawn-event unhook failed: " + e.Message);
+                }
+                kkSpawnHandler = null;
             }
             if (entries == null)
             {
