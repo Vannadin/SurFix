@@ -29,8 +29,15 @@ building modules compose at full precision. On scene teardown the stock
 hierarchy is restored exactly. Bodies below 2^21 m radius (all stock bodies)
 are left untouched.
 
-Current scope (v0): Space Center scene, home body KSC. Flight scene and other
-PQSCity/PQSCity2 statics are planned.
+Scope: Space Center and Flight scenes; every PQSCity/PQSCity2 on bodies with
+radius >= 2^21 m. Kerbal Konstructs group centers are detected (by reflection,
+no dependency) and excluded: KK's editor reads planet-relative positions back
+from the transform, which a driven city would corrupt. Precision for KK statics
+is planned as a KK-side integration instead.
+
+## License
+
+MIT (matching KSP Community Fixes).
 
 ## Building
 

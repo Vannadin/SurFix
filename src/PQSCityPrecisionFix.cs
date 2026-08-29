@@ -39,6 +39,8 @@ namespace PQSCityPrecisionFix
         private const double minUlpToDrive = 0.25;
         // detach while a freshly loaded vessel is still packed (colliders off)
         private const int scanFrame = 2;
+        // pick up cities created mid-scene (Kerbal Konstructs spawns groups on the fly)
+        private const int rescanIntervalFrames = 120;
 
         private class Entry
         {
@@ -57,8 +59,19 @@ namespace PQSCityPrecisionFix
         private static readonly FieldInfo city2Prp = typeof(PQSCity2).GetField(
             "planetRelativePosition", BindingFlags.Instance | BindingFlags.NonPublic);
 
+        // Kerbal Konstructs interop, all via reflection (no hard dependency).
+        // KK's editor reads transform.localPosition back as a planet-relative
+        // position while moving a group (GroupEditor.OnMoveCallBack); driving a
+        // KK-owned city would corrupt those readbacks and the saved configs, so
+        // KK group centers are excluded from the drive.
+        private static bool kkChecked = false;
+        private static PropertyInfo kkAllGroupCenters = null;
+        private static FieldInfo kkPqsCity = null;
+
         private List<Entry> entries = null;
+        private readonly HashSet<int> processed = new HashSet<int>();
         private int frames = 0;
+        private int rescanCountdown = 0;
         private bool subscribed = false;
 
         public void FixedUpdate()
@@ -83,6 +96,11 @@ namespace PQSCityPrecisionFix
                     return;
                 }
             }
+            if (--rescanCountdown <= 0)
+            {
+                rescanCountdown = rescanIntervalFrames;
+                Rescan();
+            }
             Manage();
         }
 
@@ -93,37 +111,67 @@ namespace PQSCityPrecisionFix
 
         private void Scan()
         {
-            List<Entry> found = new List<Entry>();
-            foreach (PQSCity city in UnityEngine.Object.FindObjectsOfType<PQSCity>())
+            bool anyLargeBody = false;
+            for (int i = FlightGlobals.Bodies.Count; i-- > 0;)
             {
-                TryAdd(found, city);
+                CelestialBody body = FlightGlobals.Bodies[i];
+                if (body.pqsController != null && UlpAt(body.Radius) >= minUlpToDrive)
+                {
+                    anyLargeBody = true;
+                    break;
+                }
             }
-            foreach (PQSCity2 city in UnityEngine.Object.FindObjectsOfType<PQSCity2>())
+            if (!anyLargeBody)
             {
-                TryAdd(found, city);
-            }
-            if (found.Count == 0)
-            {
-                Debug.Log("[PQSCityPrecisionFix] no driveable cities, standing down");
+                // stock-scale system: quantization is invisible everywhere,
+                // and no mod can grow a planet mid-scene — stand down for good
+                Debug.Log("[PQSCityPrecisionFix] no large-radius body, standing down");
                 Destroy(this);
                 return;
             }
-            entries = found;
+            entries = new List<Entry>();
             GameEvents.onFloatingOriginShift.Add(OnOriginShift);
             GameEvents.OnPQSCityOrientated.Add(OnCityOrientated);
             GameEvents.OnScenerySettingChanged.Add(OnScenerySettingChanged);
             subscribed = true;
+            Rescan();
             Debug.Log("[PQSCityPrecisionFix] managing " + entries.Count + " cities");
         }
 
-        private void TryAdd(List<Entry> found, PQSSurfaceObject city)
+        private void Rescan()
         {
-            if (city == null || city.sphere == null || city.transform.parent == null)
+            HashSet<int> kkOwned = KKOwnedCityIds();
+            foreach (PQSCity city in UnityEngine.Object.FindObjectsOfType<PQSCity>())
             {
+                Consider(city, kkOwned);
+            }
+            foreach (PQSCity2 city in UnityEngine.Object.FindObjectsOfType<PQSCity2>())
+            {
+                Consider(city, kkOwned);
+            }
+        }
+
+        private void Consider(PQSSurfaceObject city, HashSet<int> kkOwned)
+        {
+            int id = city.GetInstanceID();
+            if (processed.Contains(id))
+            {
+                return;
+            }
+            if (kkOwned.Contains(id))
+            {
+                // permanent: a KK group center stays KK-owned for its lifetime
+                processed.Add(id);
+                return;
+            }
+            if (city.sphere == null || city.transform.parent == null)
+            {
+                // transient (mid-construction) — retry on a later rescan
                 return;
             }
             if (UlpAt(city.sphere.radius) < minUlpToDrive)
             {
+                processed.Add(id);
                 return;
             }
             CelestialBody body = city.gameObject.GetComponentInParent<CelestialBody>();
@@ -131,12 +179,59 @@ namespace PQSCityPrecisionFix
             {
                 return;
             }
-            found.Add(new Entry
+            processed.Add(id);
+            entries.Add(new Entry
             {
                 city = city,
                 body = body,
                 planet = city.transform.parent,
             });
+        }
+
+        private static HashSet<int> KKOwnedCityIds()
+        {
+            HashSet<int> owned = new HashSet<int>();
+            if (!kkChecked)
+            {
+                kkChecked = true;
+                foreach (AssemblyLoader.LoadedAssembly loaded in AssemblyLoader.loadedAssemblies)
+                {
+                    if (loaded.name != "KerbalKonstructs")
+                    {
+                        continue;
+                    }
+                    Type database = loaded.assembly.GetType("KerbalKonstructs.Core.StaticDatabase");
+                    Type groupCenter = loaded.assembly.GetType("KerbalKonstructs.Core.GroupCenter");
+                    if (database != null && groupCenter != null)
+                    {
+                        kkAllGroupCenters = database.GetProperty("allGroupCenters",
+                            BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                        kkPqsCity = groupCenter.GetField("pqsCity",
+                            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    }
+                    Debug.Log("[PQSCityPrecisionFix] Kerbal Konstructs detected, group centers "
+                        + ((kkAllGroupCenters != null && kkPqsCity != null) ? "will be excluded" : "NOT resolvable — update this mod"));
+                    break;
+                }
+            }
+            if (kkAllGroupCenters == null || kkPqsCity == null)
+            {
+                return owned;
+            }
+            Array centers = kkAllGroupCenters.GetValue(null, null) as Array;
+            if (centers == null)
+            {
+                return owned;
+            }
+            foreach (object center in centers)
+            {
+                PQSCity city = kkPqsCity.GetValue(center) as PQSCity;
+                if (city != null)
+                {
+                    owned.Add(city.GetInstanceID());
+                }
+            }
+            return owned;
         }
 
         private void Manage()
