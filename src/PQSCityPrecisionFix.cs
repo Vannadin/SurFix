@@ -30,6 +30,17 @@ namespace PQSCityPrecisionFix
     ///   so — detached that would teleport the origin — so on that event every
     ///   detached PQSCity2 is reattached first; it re-detaches automatically
     ///   once PositioningCompleted is true again.
+    ///
+    /// Kerbal Konstructs interop (reflection, no hard dependency):
+    /// KK group centers ARE PQSCity instances, and driving them is what makes
+    /// KK statics and the KK editor camera smooth (KK points the FlightCamera
+    /// at the selected static's transform; on the stock planet-parented chain
+    /// that pivot moves in >= 0.25 m quanta, juddering the whole view). The
+    /// one incompatible flow is KK's GROUP editor, which reads
+    /// transform.localPosition back as a planet-relative position while moving
+    /// a whole group and saves it into configs — so the group currently
+    /// selected in an open GroupEditor window is temporarily reattached (stock
+    /// behavior while group-editing), and re-detaches when the editor closes.
     /// </summary>
     [KSPAddon(KSPAddon.Startup.FlightAndKSC, false)]
     [DefaultExecutionOrder(29000)]
@@ -59,14 +70,12 @@ namespace PQSCityPrecisionFix
         private static readonly FieldInfo city2Prp = typeof(PQSCity2).GetField(
             "planetRelativePosition", BindingFlags.Instance | BindingFlags.NonPublic);
 
-        // Kerbal Konstructs interop, all via reflection (no hard dependency).
-        // KK's editor reads transform.localPosition back as a planet-relative
-        // position while moving a group (GroupEditor.OnMoveCallBack); driving a
-        // KK-owned city would corrupt those readbacks and the saved configs, so
-        // KK group centers are excluded from the drive.
+        // Kerbal Konstructs reflection surface (resolved once, absent = inert)
         private static bool kkChecked = false;
-        private static PropertyInfo kkAllGroupCenters = null;
-        private static FieldInfo kkPqsCity = null;
+        private static FieldInfo kkPqsCity = null;           // GroupCenter.pqsCity
+        private static PropertyInfo kkGroupEditorInstance = null; // GroupEditor.instance
+        private static MethodInfo kkGroupEditorIsOpen = null;     // KKWindow.IsOpen()
+        private static FieldInfo kkSelectedGroup = null;          // GroupEditor.selectedGroup
 
         private List<Entry> entries = null;
         private readonly HashSet<int> processed = new HashSet<int>();
@@ -129,6 +138,7 @@ namespace PQSCityPrecisionFix
                 Destroy(this);
                 return;
             }
+            EnsureKKReflection();
             entries = new List<Entry>();
             GameEvents.onFloatingOriginShift.Add(OnOriginShift);
             GameEvents.OnPQSCityOrientated.Add(OnCityOrientated);
@@ -140,28 +150,21 @@ namespace PQSCityPrecisionFix
 
         private void Rescan()
         {
-            HashSet<int> kkOwned = KKOwnedCityIds();
             foreach (PQSCity city in UnityEngine.Object.FindObjectsOfType<PQSCity>())
             {
-                Consider(city, kkOwned);
+                Consider(city);
             }
             foreach (PQSCity2 city in UnityEngine.Object.FindObjectsOfType<PQSCity2>())
             {
-                Consider(city, kkOwned);
+                Consider(city);
             }
         }
 
-        private void Consider(PQSSurfaceObject city, HashSet<int> kkOwned)
+        private void Consider(PQSSurfaceObject city)
         {
             int id = city.GetInstanceID();
             if (processed.Contains(id))
             {
-                return;
-            }
-            if (kkOwned.Contains(id))
-            {
-                // permanent: a KK group center stays KK-owned for its lifetime
-                processed.Add(id);
                 return;
             }
             if (city.sphere == null || city.transform.parent == null)
@@ -188,60 +191,94 @@ namespace PQSCityPrecisionFix
             });
         }
 
-        private static HashSet<int> KKOwnedCityIds()
+        private static void EnsureKKReflection()
         {
-            HashSet<int> owned = new HashSet<int>();
-            if (!kkChecked)
+            if (kkChecked)
             {
-                kkChecked = true;
-                foreach (AssemblyLoader.LoadedAssembly loaded in AssemblyLoader.loadedAssemblies)
+                return;
+            }
+            kkChecked = true;
+            foreach (AssemblyLoader.LoadedAssembly loaded in AssemblyLoader.loadedAssemblies)
+            {
+                if (loaded.name != "KerbalKonstructs")
                 {
-                    if (loaded.name != "KerbalKonstructs")
-                    {
-                        continue;
-                    }
-                    Type database = loaded.assembly.GetType("KerbalKonstructs.Core.StaticDatabase");
-                    Type groupCenter = loaded.assembly.GetType("KerbalKonstructs.Core.GroupCenter");
-                    if (database != null && groupCenter != null)
-                    {
-                        kkAllGroupCenters = database.GetProperty("allGroupCenters",
-                            BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-                        kkPqsCity = groupCenter.GetField("pqsCity",
-                            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                    }
-                    Debug.Log("[PQSCityPrecisionFix] Kerbal Konstructs detected, group centers "
-                        + ((kkAllGroupCenters != null && kkPqsCity != null) ? "will be excluded" : "NOT resolvable — update this mod"));
-                    break;
+                    continue;
                 }
-            }
-            if (kkAllGroupCenters == null || kkPqsCity == null)
-            {
-                return owned;
-            }
-            Array centers = kkAllGroupCenters.GetValue(null, null) as Array;
-            if (centers == null)
-            {
-                return owned;
-            }
-            foreach (object center in centers)
-            {
-                PQSCity city = kkPqsCity.GetValue(center) as PQSCity;
-                if (city != null)
+                Type groupCenter = loaded.assembly.GetType("KerbalKonstructs.Core.GroupCenter");
+                Type groupEditor = loaded.assembly.GetType("KerbalKonstructs.UI.GroupEditor");
+                if (groupCenter != null)
                 {
-                    owned.Add(city.GetInstanceID());
+                    kkPqsCity = groupCenter.GetField("pqsCity",
+                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
                 }
+                if (groupEditor != null)
+                {
+                    kkGroupEditorInstance = groupEditor.GetProperty("instance",
+                        BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                    kkGroupEditorIsOpen = groupEditor.GetMethod("IsOpen",
+                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    kkSelectedGroup = groupEditor.GetField("selectedGroup",
+                        BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                }
+                bool resolved = kkPqsCity != null && kkGroupEditorInstance != null
+                    && kkGroupEditorIsOpen != null && kkSelectedGroup != null;
+                Debug.Log("[PQSCityPrecisionFix] Kerbal Konstructs detected, group-editor guard "
+                    + (resolved ? "armed" : "NOT resolvable — update this mod (group editing may misbehave)"));
+                break;
             }
-            return owned;
+        }
+
+        /// <summary>
+        /// The PQSCity of the group currently selected in an OPEN KK group
+        /// editor, or null. That one group must stay attached (stock behavior)
+        /// while it is being group-edited.
+        /// </summary>
+        private static PQSSurfaceObject CityUnderGroupEdit()
+        {
+            if (kkGroupEditorInstance == null || kkGroupEditorIsOpen == null
+                || kkSelectedGroup == null || kkPqsCity == null)
+            {
+                return null;
+            }
+            try
+            {
+                object editor = kkGroupEditorInstance.GetValue(null, null);
+                if (editor == null || !(bool)kkGroupEditorIsOpen.Invoke(editor, null))
+                {
+                    return null;
+                }
+                object group = kkSelectedGroup.GetValue(null);
+                if (group == null)
+                {
+                    return null;
+                }
+                return kkPqsCity.GetValue(group) as PQSSurfaceObject;
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("[PQSCityPrecisionFix] KK group-editor probe failed: " + e.Message);
+                return null;
+            }
         }
 
         private void Manage()
         {
+            PQSSurfaceObject editedCity = CityUnderGroupEdit();
             for (int i = entries.Count; i-- > 0;)
             {
                 Entry entry = entries[i];
                 if (entry.city == null)
                 {
                     entries.RemoveAt(i);
+                    continue;
+                }
+                if (ReferenceEquals(entry.city, editedCity))
+                {
+                    // KK group editor works on this group: stock hierarchy only
+                    if (entry.detached)
+                    {
+                        Reattach(entry);
+                    }
                     continue;
                 }
                 bool sphereAlive = entry.city.sphere != null && entry.city.sphere.isAlive;
@@ -431,7 +468,7 @@ namespace PQSCityPrecisionFix
             for (int i = entries.Count; i-- > 0;)
             {
                 Entry entry = entries[i];
-                if (entry.city is PQSCity2 && entry.detached && entry.city != null)
+                if (entry.city is PQSCity2 && entry.detached)
                 {
                     Reattach(entry);
                 }

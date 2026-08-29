@@ -30,10 +30,14 @@ hierarchy is restored exactly. Bodies below 2^21 m radius (all stock bodies)
 are left untouched.
 
 Scope: Space Center and Flight scenes; every PQSCity/PQSCity2 on bodies with
-radius >= 2^21 m. Kerbal Konstructs group centers are detected (by reflection,
-no dependency) and excluded: KK's editor reads planet-relative positions back
-from the transform, which a driven city would corrupt. Precision for KK statics
-is planned as a KK-side integration instead.
+radius >= 2^21 m — including Kerbal Konstructs group centers, which is what
+makes KK statics and the KK editor camera smooth (KK points the flight camera
+at the selected static; on the stock planet-parented chain that pivot moves in
+>= 0.25 m quanta, juddering the whole view). The one incompatible KK flow is
+its GROUP editor, which reads planet-relative positions back from the
+transform: the group selected in an open GroupEditor window is temporarily
+returned to the stock hierarchy (detected by reflection, no dependency) and
+rejoins the drive when the editor closes.
 
 ## License
 
