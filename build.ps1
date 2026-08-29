@@ -21,9 +21,19 @@ if ($LASTEXITCODE -ne 0) { throw "csc failed with $LASTEXITCODE" }
 $dll = Get-Item $out
 Write-Output ("built: " + $dll.FullName + " " + $dll.Length + " bytes " + $dll.LastWriteTime.ToString('o'))
 
+# deploy into the test install; if the game holds the file, pass only when the
+# deployed copy already matches the fresh build (fail-closed on real staleness)
 $dest = Join-Path $ksp 'GameData\PQSCityPrecisionFix'
 New-Item -ItemType Directory -Force $dest | Out-Null
-Copy-Item $out $dest -Force
-$deployed = Get-Item (Join-Path $dest 'PQSCityPrecisionFix.dll')
-if ((Get-FileHash $deployed.FullName).Hash -ne (Get-FileHash $out).Hash) { throw 'deploy hash mismatch' }
-Write-Output ("deployed: " + $deployed.FullName + " (hash verified)")
+$destFile = Join-Path $dest 'PQSCityPrecisionFix.dll'
+try {
+    Copy-Item $out $destFile -Force -ErrorAction Stop
+    if ((Get-FileHash $destFile).Hash -ne (Get-FileHash $out).Hash) { throw 'deploy hash mismatch' }
+    Write-Output ("deployed: " + $destFile + " (hash verified)")
+} catch [System.IO.IOException] {
+    if ((Test-Path $destFile) -and ((Get-FileHash $destFile).Hash -eq (Get-FileHash $out).Hash)) {
+        Write-Output ("deploy target locked (game running) but already up to date: " + $destFile)
+    } else {
+        throw 'deploy target locked AND stale - close the game and rerun'
+    }
+}
