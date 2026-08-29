@@ -1,8 +1,9 @@
-# PQSCityPrecisionFix
+# SurFix
 
-Fixes the 0.5–1 m misalignment between space-center building modules on
-large-radius planets (RSS and similar), caused by float32 world-matrix
-composition with planet-radius intermediates in Unity's transform chain.
+**Sur**face object precision **fix** for KSP. Repairs the 0.5–1 m misalignment
+between space-center building modules on large-radius planets (RSS and
+similar), caused by float32 world-matrix composition with planet-radius
+intermediates in Unity's transform chain.
 
 ## The problem
 
@@ -46,7 +47,7 @@ Scope notes:
 
 ## Installation
 
-Unzip into your KSP folder so that `GameData/PQSCityPrecisionFix/` sits
+Unzip into your KSP folder so that `GameData/SurFix/` sits
 alongside `GameData/Squad/`.
 
 ## Compatibility
@@ -60,7 +61,7 @@ MIT
 
 ## Building
 
-`build.ps1` compiles `src/PQSCityPrecisionFix.cs` against a KSP 1.12.5
+`build.ps1` compiles `src/SurFix.cs` against a KSP 1.12.5
 install's Managed assemblies and deploys to its GameData; pass `-Ksp` / `-Csc`
 if your paths differ, `-NoDeploy` to skip the copy. `package.ps1` produces the
 release zip.

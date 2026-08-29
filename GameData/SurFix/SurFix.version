@@ -1,7 +1,7 @@
 {
-	"NAME": "PQSCityPrecisionFix",
-	"URL": "https://raw.githubusercontent.com/Vannadin/PQSCityPrecisionFix/master/GameData/PQSCityPrecisionFix/PQSCityPrecisionFix.version",
-	"DOWNLOAD": "https://github.com/Vannadin/PQSCityPrecisionFix/releases",
+	"NAME": "SurFix",
+	"URL": "https://raw.githubusercontent.com/Vannadin/SurFix/master/GameData/SurFix/SurFix.version",
+	"DOWNLOAD": "https://github.com/Vannadin/SurFix/releases",
 	"VERSION": {
 		"MAJOR": 1,
 		"MINOR": 0,

@@ -3,22 +3,22 @@ $ErrorActionPreference = 'Stop'
 
 & (Join-Path $PSScriptRoot 'build.ps1') -NoDeploy
 
-$version = (Get-Content (Join-Path $PSScriptRoot 'GameData\PQSCityPrecisionFix\PQSCityPrecisionFix.version') | ConvertFrom-Json).VERSION
+$version = (Get-Content (Join-Path $PSScriptRoot 'GameData\SurFix\SurFix.version') | ConvertFrom-Json).VERSION
 $verStr = "$($version.MAJOR).$($version.MINOR).$($version.PATCH)"
 
 $stagingRoot = Join-Path $PSScriptRoot 'staging'
-$stage = Join-Path $stagingRoot 'GameData\PQSCityPrecisionFix'
+$stage = Join-Path $stagingRoot 'GameData\SurFix'
 if (Test-Path $stagingRoot) { Remove-Item $stagingRoot -Recurse -Force }
 New-Item -ItemType Directory -Force $stage | Out-Null
 
-Copy-Item (Join-Path $PSScriptRoot 'bin\PQSCityPrecisionFix.dll') $stage
-Copy-Item (Join-Path $PSScriptRoot 'GameData\PQSCityPrecisionFix\PQSCityPrecisionFix.version') $stage
+Copy-Item (Join-Path $PSScriptRoot 'bin\SurFix.dll') $stage
+Copy-Item (Join-Path $PSScriptRoot 'GameData\SurFix\SurFix.version') $stage
 Copy-Item (Join-Path $PSScriptRoot 'LICENSE') $stage
 Copy-Item (Join-Path $PSScriptRoot 'README.md') $stage
 
 $relDir = Join-Path $PSScriptRoot 'releases'
 New-Item -ItemType Directory -Force $relDir | Out-Null
-$zip = Join-Path $relDir "PQSCityPrecisionFix-$verStr.zip"
+$zip = Join-Path $relDir "SurFix-$verStr.zip"
 if (Test-Path $zip) { Remove-Item $zip -Force }
 
 # entry names are set explicitly with '/': both Compress-Archive and .NET
@@ -39,6 +39,6 @@ $z = [System.IO.Compression.ZipFile]::OpenRead($zip)
 $names = $z.Entries | ForEach-Object { $_.FullName }
 $z.Dispose()
 if ($names -match '\\') { throw 'zip entries contain backslashes' }
-if (-not ($names -contains 'GameData/PQSCityPrecisionFix/PQSCityPrecisionFix.dll')) { throw 'zip missing dll' }
+if (-not ($names -contains 'GameData/SurFix/SurFix.dll')) { throw 'zip missing dll' }
 Write-Output ("packaged: " + $zip)
 $names | ForEach-Object { Write-Output ("  " + $_) }

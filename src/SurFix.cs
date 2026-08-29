@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
 
-namespace PQSCityPrecisionFix
+namespace SurFix
 {
     /// <summary>
     /// Drives every PQSCity on a body whose radius reaches 2^21 m (float ULP
@@ -133,14 +133,14 @@ namespace PQSCityPrecisionFix
             }
             if (!anyLargeBody)
             {
-                Debug.Log("[PQSCityPrecisionFix] no large-radius body, standing down");
+                Debug.Log("[SurFix] no large-radius body, standing down");
                 Destroy(gameObject);
                 return;
             }
             EnsureKKReflection();
             if (pqsMods == null || pqsResetModList == null)
             {
-                Debug.LogWarning("[PQSCityPrecisionFix] PQS mod-list tracking unavailable — update this mod");
+                Debug.LogWarning("[SurFix] PQS mod-list tracking unavailable — update this mod");
             }
             entries = new List<Entry>();
             GameEvents.onFloatingOriginShift.Add(OnOriginShift);
@@ -148,7 +148,7 @@ namespace PQSCityPrecisionFix
             subscribed = true;
             Rescan();
             rescanCountdown = rescanIntervalFrames;
-            Debug.Log("[PQSCityPrecisionFix] managing " + entries.Count + " cities");
+            Debug.Log("[SurFix] managing " + entries.Count + " cities");
         }
 
         private void Rescan()
@@ -222,11 +222,11 @@ namespace PQSCityPrecisionFix
                     && kkEditorIsOpen != null && kkSelectedGroup != null;
                 if (kkArmed)
                 {
-                    Debug.Log("[PQSCityPrecisionFix] Kerbal Konstructs detected, group-editor guard armed");
+                    Debug.Log("[SurFix] Kerbal Konstructs detected, group-editor guard armed");
                 }
                 else
                 {
-                    Debug.LogWarning("[PQSCityPrecisionFix] Kerbal Konstructs detected but the"
+                    Debug.LogWarning("[SurFix] Kerbal Konstructs detected but the"
                         + " group-editor guard is NOT resolvable — update this mod");
                 }
                 break;
@@ -259,7 +259,7 @@ namespace PQSCityPrecisionFix
             catch (Exception e)
             {
                 kkArmed = false;
-                Debug.LogWarning("[PQSCityPrecisionFix] KK group-editor probe failed, guard disarmed: " + e.Message);
+                Debug.LogWarning("[SurFix] KK group-editor probe failed, guard disarmed: " + e.Message);
                 return null;
             }
         }
@@ -319,7 +319,7 @@ namespace PQSCityPrecisionFix
                 }
                 catch (Exception e)
                 {
-                    Debug.LogWarning("[PQSCityPrecisionFix] dropping " + entry.city.name + ": " + e.Message);
+                    Debug.LogWarning("[SurFix] dropping " + entry.city.name + ": " + e.Message);
                     TrySalvage(entry);
                     entries.RemoveAt(i);
                 }
@@ -334,7 +334,7 @@ namespace PQSCityPrecisionFix
                     }
                     catch (Exception e)
                     {
-                        Debug.LogWarning("[PQSCityPrecisionFix] ResetModList failed: " + e.Message);
+                        Debug.LogWarning("[SurFix] ResetModList failed: " + e.Message);
                     }
                 }
             }
@@ -568,7 +568,7 @@ namespace PQSCityPrecisionFix
                     }
                     catch (Exception e)
                     {
-                        Debug.LogWarning("[PQSCityPrecisionFix] reattach failed for "
+                        Debug.LogWarning("[SurFix] reattach failed for "
                             + entry.city.name + ": " + e.Message);
                     }
                 }
